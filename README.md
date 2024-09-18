@@ -7,46 +7,21 @@
 
 - **Recursive Search**: By default, `grepl` searches through all files and subdirectories starting from the current working directory.
 - **Case Insensitivity**: The search is case-insensitive by default, but can be made case-sensitive with the `-c` flag.
-- **Excluding Subdirectories and Hidden Files**: Use the `-e` flag to exclude subdirectories and hidden files from the search.
+- **Excluding Subdirectories and Hidden Files**: Use the `-d` flag to exclude subdirectories and `-h` to exclude hidden files from the search.
 - **Binary File Detection**: `grepl` automatically skips binary files during the search.
 
 ## Usage
 
 ```bash
-grepl [-e] [-c] [-s] <search-string>
+grepl [-d] [-h] [-c] [-s] <search-string>
 ```
 
 ### Flags
 
-- `-e`: Do not search subdirectories and hidden files.
+- `-d`: Do not search subdirectories.
+- `-h`: Do not search hidden files.
 - `-c`: Perform case-sensitive search.
 - `-s`: Show directories where files have been skipped.
-
-### Example
-
-1. **Basic Search (case-insensitive, including subdirectories and hidden files)**:
-   ```bash
-   grepl "search text"
-   ```
-
-2. **Case-sensitive Search**:
-   ```bash
-   grepl -c "search text"
-   ```
-
-3. **Exclude Subdirectories and Hidden Files**:
-   ```bash
-   grepl -e "search text"
-   ```
-4. **Show skipped files and directories**:
-   ```bash
-   grepl -s "search text"
-   ```
-
-4. **Case-sensitive Search while Excluding Subdirectories and Hidden Files and showing skipped files and directories**:
-   ```bash
-   grepl -e -c -s "search text"
-   ```
 
 ## Output Format
 

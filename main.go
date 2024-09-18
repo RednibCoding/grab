@@ -9,13 +9,17 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 )
 
 var wg sync.WaitGroup
 var skippedFiles int
 var skippedDirs = make(map[string]int)
 
-const version = "1.0.1"
+var scannedFiles int       // Counter for scanned files
+var scannedDirectories int // Counter for scanned directories
+
+const version = "1.0.2"
 
 // isBinary checks the first 1024 bytes of a file to see if it's a binary file
 func isBinary(filePath string) bool {
@@ -42,8 +46,9 @@ func isBinary(filePath string) bool {
 }
 
 // searchInFile reads a file line by line and searches for the searchString
-func searchInFile(filePath string, searchString string, caseSensitive bool, results chan<- string, skippedDirs map[string]int) {
+func searchInFile(filePath string, searchString string, caseSensitive bool, results chan<- string, skippedDirs map[string]int, workerPool chan struct{}) {
 	defer wg.Done()
+	defer func() { <-workerPool }() // Release worker back to the pool
 
 	// Skip binary files
 	if isBinary(filePath) {
@@ -88,7 +93,7 @@ func searchInFile(filePath string, searchString string, caseSensitive bool, resu
 }
 
 // searchInDirectory walks through a directory and searches each file
-func searchInDirectory(rootDir string, searchString string, excludeHidden, caseSensitive bool, results chan<- string, skippedDirs map[string]int) {
+func searchInDirectory(rootDir string, searchString string, excludeSubdirs, excludeHidden, caseSensitive bool, results chan<- string, skippedDirs map[string]int, workerPool chan struct{}) {
 	defer wg.Done()
 
 	err := filepath.Walk(rootDir, func(path string, info os.FileInfo, err error) error {
@@ -96,7 +101,12 @@ func searchInDirectory(rootDir string, searchString string, excludeHidden, caseS
 			return err
 		}
 
-		// Exclude hidden files and directories if the -e flag is set
+		// Count scanned directories
+		if info.IsDir() {
+			scannedDirectories++
+		}
+
+		// Exclude hidden files if the -h flag is set
 		if excludeHidden && strings.HasPrefix(info.Name(), ".") {
 			if info.IsDir() {
 				return filepath.SkipDir
@@ -104,10 +114,17 @@ func searchInDirectory(rootDir string, searchString string, excludeHidden, caseS
 			return nil
 		}
 
+		// Exclude subdirectories if the -d flag is set
+		if excludeSubdirs && info.IsDir() && path != rootDir {
+			return filepath.SkipDir
+		}
+
 		// If it's a file, search it
 		if !info.IsDir() {
+			scannedFiles++ // Count scanned files
 			wg.Add(1)
-			go searchInFile(path, searchString, caseSensitive, results, skippedDirs)
+			workerPool <- struct{}{} // Acquire a worker slot before starting
+			go searchInFile(path, searchString, caseSensitive, results, skippedDirs, workerPool)
 		}
 
 		return nil
@@ -150,18 +167,20 @@ func printResults(results []string) {
 // printUsage prints usage information for the tool
 func printUsage() {
 	fmt.Println("grepl version", version)
-	fmt.Println("Usage: grepl [-e] [-c] [-s] <search-string>")
+	fmt.Println("Usage: grepl [-d] [-h] [-c] [-s] <search-string>")
 	fmt.Println("Flags:")
-	fmt.Println("  -e    Do not search subdirectories and hidden files")
+	fmt.Println("  -d    Do not search subdirectories")
+	fmt.Println("  -h    Do not search hidden files")
 	fmt.Println("  -c    Perform case-sensitive search")
 	fmt.Println("  -s    Show directories where files have been skipped")
 	fmt.Println("\nExample:")
-	fmt.Println("  grepl -e -c -s 'search text'")
+	fmt.Println("  grepl -d -h -c -s 'search text'")
 }
 
 func main() {
-	// Define flags for excluding hidden files, case sensitivity, and showing skipped directories
-	excludeHidden := flag.Bool("e", false, "Do not search subdirectories and hidden files")
+	// Define flags for excluding subdirectories, hidden files, case sensitivity, and showing skipped directories
+	excludeSubdirs := flag.Bool("d", false, "Do not search subdirectories")
+	excludeHidden := flag.Bool("h", false, "Do not search hidden files")
 	caseSensitive := flag.Bool("c", false, "Case-sensitive search")
 	showSkipped := flag.Bool("s", false, "Show directories where files have been skipped")
 	flag.Parse()
@@ -180,12 +199,17 @@ func main() {
 	}
 
 	// Channel to collect results
-	resultsChan := make(chan string)
+	resultsChan := make(chan string, 5000) // Buffer size to handle large number of results
 	var results []string
+
+	// Worker pool to limit the number of concurrent file processing operations
+	workerPool := make(chan struct{}, 500) // Limit to 500 concurrent file opens
 
 	// Start a goroutine to search in the root directory concurrently
 	wg.Add(1)
-	go searchInDirectory(currentDir, searchString, *excludeHidden, *caseSensitive, resultsChan, skippedDirs)
+	fmt.Println("searching...")
+	startTime := time.Now() // Start measuring time
+	go searchInDirectory(currentDir, searchString, *excludeSubdirs, *excludeHidden, *caseSensitive, resultsChan, skippedDirs, workerPool)
 
 	// Start a goroutine to close the results channel once all searching is done
 	go func() {
@@ -198,15 +222,26 @@ func main() {
 		results = append(results, result)
 	}
 
+	// Calculate and print the elapsed time
+	elapsedTime := time.Since(startTime)
+
 	// Print the results in the desired format
 	printResults(results)
 
+	fmt.Printf("\nSearch completed in: %s\n", elapsedTime)
+
+	// Print scanned files and directories
+	fmt.Printf("Scanned files: %d\n", scannedFiles)
+	fmt.Printf("Scanned directories: %d\n", scannedDirectories)
+
 	// Print skipped directories if the -s flag is provided
-	if *showSkipped && skippedFiles > 0 {
-		fmt.Printf("\nSkipped files: %d\n", skippedFiles)
-		fmt.Println("Skipped directories:")
-		for dir, count := range skippedDirs {
-			fmt.Printf("  - %s (%d)\n", dir, count)
+	if *showSkipped {
+		fmt.Printf("Skipped files: %d\n", skippedFiles)
+		if skippedFiles > 0 {
+			fmt.Println("Skipped directories:")
+			for dir, count := range skippedDirs {
+				fmt.Printf("  - %s (%d)\n", dir, count)
+			}
 		}
 	}
 }
