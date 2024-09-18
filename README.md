@@ -74,7 +74,7 @@ main.go (4):
 
 1. Clone this repository:
    ```bash
-   git clone https://github.com/yourusername/grepl.git
+   git clone git@github.com:RednibCoding/grepl.git
    ```
 
 2. Build the binary:
@@ -86,6 +86,9 @@ main.go (4):
    ```bash
    ./grepl "search text"
    ```
+
+## Prebuild Binary
+ - a prebuild binary for windows can be found in the `bin` directory
 
 ## License
 
