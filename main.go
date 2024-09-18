@@ -12,14 +12,15 @@ import (
 )
 
 var wg sync.WaitGroup
+var skippedFiles int
+var skippedDirs = make(map[string]int)
 
-const version = "1.0.0"
+const version = "1.0.1"
 
 // isBinary checks the first 1024 bytes of a file to see if it's a binary file
 func isBinary(filePath string) bool {
 	file, err := os.Open(filePath)
 	if err != nil {
-		fmt.Println("Error opening file:", err)
 		return false
 	}
 	defer file.Close()
@@ -27,7 +28,6 @@ func isBinary(filePath string) bool {
 	buf := make([]byte, 1024)
 	n, err := file.Read(buf)
 	if err != nil && err != io.EOF {
-		fmt.Println("Error reading file:", err)
 		return false
 	}
 
@@ -42,7 +42,7 @@ func isBinary(filePath string) bool {
 }
 
 // searchInFile reads a file line by line and searches for the searchString
-func searchInFile(filePath string, searchString string, caseSensitive bool, results chan<- string) {
+func searchInFile(filePath string, searchString string, caseSensitive bool, results chan<- string, skippedDirs map[string]int) {
 	defer wg.Done()
 
 	// Skip binary files
@@ -52,15 +52,21 @@ func searchInFile(filePath string, searchString string, caseSensitive bool, resu
 
 	file, err := os.Open(filePath)
 	if err != nil {
-		fmt.Println("Error opening file:", err)
+		// Track skipped files and directories
+		skippedFiles++
+		dir := filepath.Dir(filePath)
+		skippedDirs[dir]++
 		return
 	}
 	defer file.Close()
 
-	scanner := bufio.NewScanner(file)
+	reader := bufio.NewReader(file)
 	lineNumber := 1
-	for scanner.Scan() {
-		line := scanner.Text()
+	for {
+		line, err := reader.ReadString('\n') // Read until the next newline character
+		if err != nil && err != io.EOF {
+			break
+		}
 
 		// Perform case-insensitive search if needed
 		if !caseSensitive {
@@ -73,16 +79,16 @@ func searchInFile(filePath string, searchString string, caseSensitive bool, resu
 			result := fmt.Sprintf("%s:%d:%d", filePath, lineNumber, column)
 			results <- result
 		}
-		lineNumber++
-	}
 
-	if err := scanner.Err(); err != nil {
-		fmt.Println("Error reading file:", err)
+		lineNumber++
+		if err == io.EOF {
+			break
+		}
 	}
 }
 
 // searchInDirectory walks through a directory and searches each file
-func searchInDirectory(rootDir string, searchString string, excludeHidden, caseSensitive bool, results chan<- string) {
+func searchInDirectory(rootDir string, searchString string, excludeHidden, caseSensitive bool, results chan<- string, skippedDirs map[string]int) {
 	defer wg.Done()
 
 	err := filepath.Walk(rootDir, func(path string, info os.FileInfo, err error) error {
@@ -101,7 +107,7 @@ func searchInDirectory(rootDir string, searchString string, excludeHidden, caseS
 		// If it's a file, search it
 		if !info.IsDir() {
 			wg.Add(1)
-			go searchInFile(path, searchString, caseSensitive, results)
+			go searchInFile(path, searchString, caseSensitive, results, skippedDirs)
 		}
 
 		return nil
@@ -112,33 +118,27 @@ func searchInDirectory(rootDir string, searchString string, excludeHidden, caseS
 	}
 }
 
+// printResults prints grouped search results
 func printResults(results []string) {
 	files := make(map[string][]string)
 
-	// Group results by the full file path (without line and column numbers)
+	// Group results by the full file path
 	for _, result := range results {
-		// Find the second colon (after the file path)
 		firstColon := strings.Index(result, ":")
 		if firstColon == -1 {
 			continue
 		}
 
-		// Now, look for the second colon after the first to separate the line and column part
 		secondColon := strings.Index(result[firstColon+1:], ":")
 		if secondColon == -1 {
 			continue
 		}
-		// Adjust the position of the secondColon relative to the full string
 		secondColon += firstColon + 1
 
-		// Extract the full file path (everything before the line:column part)
 		filePath := result[:secondColon]
-
-		// Group results by the full file path
 		files[filePath] = append(files[filePath], result)
 	}
 
-	// Print grouped results by full file path
 	for filePath, occurrences := range files {
 		fmt.Printf("%s (%d):\n", filePath, len(occurrences))
 		for _, occurrence := range occurrences {
@@ -147,20 +147,23 @@ func printResults(results []string) {
 	}
 }
 
+// printUsage prints usage information for the tool
 func printUsage() {
 	fmt.Println("grepl version", version)
-	fmt.Println("Usage: grepl [-e] [-c] <search-string>")
+	fmt.Println("Usage: grepl [-e] [-c] [-s] <search-string>")
 	fmt.Println("Flags:")
 	fmt.Println("  -e    Do not search subdirectories and hidden files")
 	fmt.Println("  -c    Perform case-sensitive search")
+	fmt.Println("  -s    Show directories where files have been skipped")
 	fmt.Println("\nExample:")
-	fmt.Println("  grepl -e -c 'search text'")
+	fmt.Println("  grepl -e -c -s 'search text'")
 }
 
 func main() {
-	// Define flags for excluding hidden files and case sensitivity
+	// Define flags for excluding hidden files, case sensitivity, and showing skipped directories
 	excludeHidden := flag.Bool("e", false, "Do not search subdirectories and hidden files")
 	caseSensitive := flag.Bool("c", false, "Case-sensitive search")
+	showSkipped := flag.Bool("s", false, "Show directories where files have been skipped")
 	flag.Parse()
 
 	// Print usage help if no arguments are provided
@@ -170,8 +173,6 @@ func main() {
 	}
 
 	searchString := flag.Arg(0)
-	// searchString := "defer"
-
 	currentDir, err := os.Getwd()
 	if err != nil {
 		fmt.Println("Error getting current directory:", err)
@@ -184,7 +185,7 @@ func main() {
 
 	// Start a goroutine to search in the root directory concurrently
 	wg.Add(1)
-	go searchInDirectory(currentDir, searchString, *excludeHidden, *caseSensitive, resultsChan)
+	go searchInDirectory(currentDir, searchString, *excludeHidden, *caseSensitive, resultsChan, skippedDirs)
 
 	// Start a goroutine to close the results channel once all searching is done
 	go func() {
@@ -199,4 +200,13 @@ func main() {
 
 	// Print the results in the desired format
 	printResults(results)
+
+	// Print skipped directories if the -s flag is provided
+	if *showSkipped && skippedFiles > 0 {
+		fmt.Printf("\nSkipped files: %d\n", skippedFiles)
+		fmt.Println("Skipped directories:")
+		for dir, count := range skippedDirs {
+			fmt.Printf("  - %s (%d)\n", dir, count)
+		}
+	}
 }
