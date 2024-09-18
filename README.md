@@ -13,13 +13,14 @@
 ## Usage
 
 ```bash
-grepl [-e] [-c] <search-string>
+grepl [-e] [-c] [-s] <search-string>
 ```
 
 ### Flags
 
 - `-e`: Do not search subdirectories and hidden files.
 - `-c`: Perform case-sensitive search.
+- `-s`: Show directories where files have been skipped.
 
 ### Example
 
@@ -37,10 +38,14 @@ grepl [-e] [-c] <search-string>
    ```bash
    grepl -e "search text"
    ```
-
-4. **Case-sensitive Search while Excluding Subdirectories and Hidden Files**:
+4. **Show skipped files and directories**:
    ```bash
-   grepl -e -c "search text"
+   grepl -s "search text"
+   ```
+
+4. **Case-sensitive Search while Excluding Subdirectories and Hidden Files and showing skipped files and directories**:
+   ```bash
+   grepl -e -c -s "search text"
    ```
 
 ## Output Format
@@ -57,6 +62,7 @@ filename (occurrences):
 Example:
 
 ```
+grepl hello
 main.go (4):
   - main.go:25:2
   - main.go:46:2
