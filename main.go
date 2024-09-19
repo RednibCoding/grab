@@ -19,7 +19,7 @@ var skippedDirs = make(map[string]int)
 var scannedFiles int       // Counter for scanned files
 var scannedDirectories int // Counter for scanned directories
 
-const version = "1.0.2"
+const version = "1.0.3"
 
 // isBinary checks the first 1024 bytes of a file to see if it's a binary file
 func isBinary(filePath string) bool {
@@ -166,15 +166,15 @@ func printResults(results []string) {
 
 // printUsage prints usage information for the tool
 func printUsage() {
-	fmt.Println("grepl version", version)
-	fmt.Println("Usage: grepl [-d] [-h] [-c] [-s] <search-string>")
+	fmt.Println("grab version", version)
+	fmt.Println("Usage: grab [-d] [-h] [-c] [-s] <search-string>")
 	fmt.Println("Flags:")
 	fmt.Println("  -d    Do not search subdirectories")
 	fmt.Println("  -h    Do not search hidden files")
 	fmt.Println("  -c    Perform case-sensitive search")
 	fmt.Println("  -s    Show directories where files have been skipped")
 	fmt.Println("\nExample:")
-	fmt.Println("  grepl -d -h -c -s 'search text'")
+	fmt.Println("  grab -d -h -c -s 'search text'")
 }
 
 func main() {

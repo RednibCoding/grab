@@ -1,6 +1,8 @@
 # Changelog
 
 ## 1.0.2
+    - Renamed project from "grepl" to "grab".
+## 1.0.2
     - Fixed a bug that lead to creating thousand of go routines which led to errors
 
 ## 1.0.1
