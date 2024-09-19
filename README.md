@@ -1,5 +1,5 @@
 
-# greb
+# grab
 
 `grepl` is a command-line tool written in Go that loosely mimics the functionality of the Linux `grep` tool. It allows you to search for a string within files, with options to perform case-sensitive searches and to exclude subdirectories and hidden files.
 
